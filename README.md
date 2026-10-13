@@ -4,7 +4,7 @@
 
 ## 下载
 
-[下载 ImageToJpg 0.1.1](dist/ImageToJpg-0.1.1.exe)
+[下载 ImageToJpg 0.1.2](dist/ImageToJpg-0.1.2.exe)
 
 ## 功能
 
@@ -17,6 +17,7 @@
 - 可选择透明区域使用白色或黑色背景
 - 尽可能保留图片元数据
 - 输出文件重名时自动编号
+- 自动记住上次使用的输出目录和转换选项
 
 > JPEG 本身是有损格式，质量 100 只能尽量减少画质损失，无法做到数学意义上的无损转换。
 
@@ -33,9 +34,8 @@
 .\build.ps1
 ```
 
-生成文件位于 `dist/ImageToJpg-0.1.1.exe`。
+生成文件位于 `dist/ImageToJpg-0.1.2.exe`。
 
 ## 更新日志
 
 参见 [CHANGELOG.md](CHANGELOG.md)。
-

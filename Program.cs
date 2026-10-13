@@ -14,8 +14,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("简洁的批量图片转 JPG 工具")]
 [assembly: AssemblyCompany("OpenAI")]
 [assembly: AssemblyProduct("ImageToJpg")]
-[assembly: AssemblyVersion("0.1.1.0")]
-[assembly: AssemblyFileVersion("0.1.1.0")]
+[assembly: AssemblyVersion("0.1.2.0")]
+[assembly: AssemblyFileVersion("0.1.2.0")]
 
 namespace ImageToJpg
 {
@@ -34,6 +34,7 @@ namespace ImageToJpg
     {
         static readonly HashSet<string> Extensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         { ".bmp", ".gif", ".ico", ".jpeg", ".jpg", ".png", ".tif", ".tiff" };
+        static readonly string SettingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ImageToJpg", "settings.ini");
 
         readonly ListBox files = new ListBox();
         readonly Button addFiles = new Button();
@@ -142,6 +143,8 @@ namespace ImageToJpg
             cancel.Click += delegate { if (cancellation != null) cancellation.Cancel(); };
 
             Controls.AddRange(new Control[] { title, note, files, addFiles, addFolder, remove, clear, fileCount, outputLabel, outputPath, output, qualityLabel, quality, resizeLabel, resizeMode, recursive, keepMetadata, background, progress, status, start, cancel });
+            LoadSettings();
+            FormClosing += delegate { SaveSettings(); };
             DragEnter += DragEnterHandler;
             DragDrop += DragDropHandler;
             files.DragEnter += DragEnterHandler;
@@ -225,6 +228,49 @@ namespace ImageToJpg
         }
 
         void UpdateCount() { fileCount.Text = files.Items.Count + " 个文件"; }
+
+        void LoadSettings()
+        {
+            try
+            {
+                if (!File.Exists(SettingsPath)) return;
+                var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (string line in File.ReadAllLines(SettingsPath))
+                {
+                    int separator = line.IndexOf('=');
+                    if (separator > 0) values[line.Substring(0, separator)] = line.Substring(separator + 1);
+                }
+
+                string value;
+                int number;
+                bool flag;
+                if (values.TryGetValue("OutputPath", out value) && !String.IsNullOrWhiteSpace(value)) outputPath.Text = value;
+                if (values.TryGetValue("Quality", out value) && Int32.TryParse(value, out number) && number >= quality.Minimum && number <= quality.Maximum) quality.Value = number;
+                if (values.TryGetValue("ResizeMode", out value) && Int32.TryParse(value, out number) && number >= 0 && number < resizeMode.Items.Count) resizeMode.SelectedIndex = number;
+                if (values.TryGetValue("Recursive", out value) && Boolean.TryParse(value, out flag)) recursive.Checked = flag;
+                if (values.TryGetValue("KeepMetadata", out value) && Boolean.TryParse(value, out flag)) keepMetadata.Checked = flag;
+                if (values.TryGetValue("Background", out value) && Int32.TryParse(value, out number) && number >= 0 && number < background.Items.Count) background.SelectedIndex = number;
+            }
+            catch { }
+        }
+
+        void SaveSettings()
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath));
+                File.WriteAllLines(SettingsPath, new[]
+                {
+                    "OutputPath=" + outputPath.Text.Trim(),
+                    "Quality=" + quality.Value,
+                    "ResizeMode=" + resizeMode.SelectedIndex,
+                    "Recursive=" + recursive.Checked,
+                    "KeepMetadata=" + keepMetadata.Checked,
+                    "Background=" + background.SelectedIndex
+                });
+            }
+            catch { }
+        }
 
         async void StartClicked(object sender, EventArgs e)
         {
@@ -360,4 +406,3 @@ namespace ImageToJpg
         }
     }
 }
-
