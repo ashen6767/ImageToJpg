@@ -14,8 +14,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("简洁的批量图片转 JPG 工具")]
 [assembly: AssemblyCompany("OpenAI")]
 [assembly: AssemblyProduct("ImageToJpg")]
-[assembly: AssemblyVersion("0.1.3.0")]
-[assembly: AssemblyFileVersion("0.1.3.0")]
+[assembly: AssemblyVersion("0.1.4.0")]
+[assembly: AssemblyFileVersion("0.1.4.0")]
 
 namespace ImageToJpg
 {
@@ -49,6 +49,7 @@ namespace ImageToJpg
         readonly NumericUpDown quality = new NumericUpDown();
         readonly CheckBox recursive = new CheckBox();
         readonly CheckBox keepMetadata = new CheckBox();
+        readonly CheckBox lazyMode = new CheckBox();
         readonly ComboBox resizeMode = new ComboBox();
         readonly ComboBox background = new ComboBox();
         readonly ProgressBar progress = new ProgressBar();
@@ -131,6 +132,10 @@ namespace ImageToJpg
             background.Location = new Point(20, 474);
             background.Size = new Size(175, 25);
             background.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
+            lazyMode.Text = "懒人模式（拖入即转换）";
+            lazyMode.AutoSize = true;
+            lazyMode.Location = new Point(220, 478);
+            lazyMode.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
 
             progress.Location = new Point(20, 521);
             progress.Size = new Size(585, 18);
@@ -151,7 +156,7 @@ namespace ImageToJpg
             cancel.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             cancel.Click += delegate { if (cancellation != null) cancellation.Cancel(); };
 
-            Controls.AddRange(new Control[] { title, note, files, addFiles, addFolder, remove, clear, fileCount, outputLabel, outputMode, outputPath, output, qualityLabel, quality, resizeLabel, resizeMode, recursive, keepMetadata, background, progress, status, start, cancel });
+            Controls.AddRange(new Control[] { title, note, files, addFiles, addFolder, remove, clear, fileCount, outputLabel, outputMode, outputPath, output, qualityLabel, quality, resizeLabel, resizeMode, recursive, keepMetadata, background, lazyMode, progress, status, start, cancel });
             LoadSettings();
             UpdateOutputMode();
             FormClosing += delegate { SaveSettings(); };
@@ -207,10 +212,20 @@ namespace ImageToJpg
             if (e.Data.GetDataPresent(DataFormats.FileDrop)) e.Effect = DragDropEffects.Copy;
         }
 
-        void DragDropHandler(object sender, DragEventArgs e)
+        async void DragDropHandler(object sender, DragEventArgs e)
         {
+            if (cancellation != null) return;
             var paths = e.Data.GetData(DataFormats.FileDrop) as string[];
-            if (paths != null) AddPaths(paths);
+            if (paths == null) return;
+
+            bool automatic = lazyMode.Checked;
+            if (automatic) files.Items.Clear();
+            AddPaths(paths);
+            if (automatic && files.Items.Count > 0 && await RunConversion(true))
+            {
+                files.Items.Clear();
+                UpdateCount();
+            }
         }
 
         void AddPaths(IEnumerable<string> paths)
@@ -261,6 +276,7 @@ namespace ImageToJpg
                 if (values.TryGetValue("Recursive", out value) && Boolean.TryParse(value, out flag)) recursive.Checked = flag;
                 if (values.TryGetValue("KeepMetadata", out value) && Boolean.TryParse(value, out flag)) keepMetadata.Checked = flag;
                 if (values.TryGetValue("Background", out value) && Int32.TryParse(value, out number) && number >= 0 && number < background.Items.Count) background.SelectedIndex = number;
+                if (values.TryGetValue("LazyMode", out value) && Boolean.TryParse(value, out flag)) lazyMode.Checked = flag;
             }
             catch { }
         }
@@ -278,7 +294,8 @@ namespace ImageToJpg
                     "ResizeMode=" + resizeMode.SelectedIndex,
                     "Recursive=" + recursive.Checked,
                     "KeepMetadata=" + keepMetadata.Checked,
-                    "Background=" + background.SelectedIndex
+                    "Background=" + background.SelectedIndex,
+                    "LazyMode=" + lazyMode.Checked
                 });
             }
             catch { }
@@ -286,16 +303,21 @@ namespace ImageToJpg
 
         async void StartClicked(object sender, EventArgs e)
         {
-            if (files.Items.Count == 0) { MessageBox.Show(this, "请先添加图片。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+            await RunConversion(false);
+        }
+
+        async System.Threading.Tasks.Task<bool> RunConversion(bool silentSuccess)
+        {
+            if (files.Items.Count == 0) { MessageBox.Show(this, "请先添加图片。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information); return false; }
             bool replaceOriginal = outputMode.SelectedIndex == 1;
-            if (!replaceOriginal && String.IsNullOrWhiteSpace(outputPath.Text)) { MessageBox.Show(this, "请选择输出文件夹。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
-            if (replaceOriginal && MessageBox.Show(this, "替换模式会在原图目录生成 JPG，并将原图移入回收站。\n同名 JPG 已存在时不会覆盖。是否继续？", "确认替换原图", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            if (!replaceOriginal && String.IsNullOrWhiteSpace(outputPath.Text)) { MessageBox.Show(this, "请选择输出文件夹。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information); return false; }
+            if (replaceOriginal && MessageBox.Show(this, "替换模式会在原图目录生成 JPG，并将原图移入回收站。\n同名 JPG 已存在时不会覆盖。是否继续？", "确认替换原图", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return false;
 
             string destination = null;
             if (!replaceOriginal)
             {
                 try { destination = Path.GetFullPath(outputPath.Text.Trim()); Directory.CreateDirectory(destination); }
-                catch (Exception ex) { MessageBox.Show(this, "无法创建输出文件夹：\n" + ex.Message, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+                catch (Exception ex) { MessageBox.Show(this, "无法创建输出文件夹：\n" + ex.Message, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error); return false; }
             }
 
             var input = files.Items.Cast<string>().ToArray();
@@ -343,13 +365,15 @@ namespace ImageToJpg
             SetBusy(false);
             status.Text = wasCancelled ? "已取消" : "转换完成";
             string errorText = errors.Count == 0 ? "" : "\n\n" + String.Join("\n", errors.ToArray());
-            MessageBox.Show(this, "成功：" + converted + "\n失败：" + failed + (wasCancelled ? "\n任务已取消。" : "") + errorText, "处理结果", MessageBoxButtons.OK, failed == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+            if (!silentSuccess || failed > 0)
+                MessageBox.Show(this, "成功：" + converted + "\n失败：" + failed + (wasCancelled ? "\n任务已取消。" : "") + errorText, "处理结果", MessageBoxButtons.OK, failed == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+            return !wasCancelled;
         }
 
         void SetBusy(bool busy)
         {
             addFiles.Enabled = addFolder.Enabled = remove.Enabled = clear.Enabled = start.Enabled = !busy;
-            outputMode.Enabled = quality.Enabled = resizeMode.Enabled = recursive.Enabled = keepMetadata.Enabled = background.Enabled = !busy;
+            outputMode.Enabled = quality.Enabled = resizeMode.Enabled = recursive.Enabled = keepMetadata.Enabled = background.Enabled = lazyMode.Enabled = !busy;
             cancel.Enabled = busy;
             UpdateOutputMode();
         }
